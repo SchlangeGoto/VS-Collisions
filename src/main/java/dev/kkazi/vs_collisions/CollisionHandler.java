@@ -4,6 +4,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.GameRules;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.Explosion;
@@ -25,9 +26,9 @@ public class CollisionHandler {
     
     private static final Logger LOGGER = LoggerFactory.getLogger(CollisionHandler.class);
 
-    private static final double MIN_COLLISION_SPEED = 0.0; // Minimum speed to trigger collision
-    private static final double MAX_EXPLOSION_POWER = 5000.0;
-    private static final double SCALING_FACTOR = 25.0;
+    private static final double MIN_COLLISION_SPEED = 2.0; // Minimum speed to trigger collision
+    private static final double MAX_EXPLOSION_POWER = 10.0;
+    private static final double SCALING_FACTOR = 3000;
     private static final int PREDICTION_TICKS = 3; // How many ticks ahead to predict
     
     private static class CollisionResult {
@@ -72,7 +73,6 @@ public class CollisionHandler {
             CollisionResult result = checkForCollisionWithPoint(level, ship, futurePosition);
             if (result.hasCollision) {
                 handleCollision(level, (ServerShip) ship, speed, result.collisionPoint);
-                sendDebugMessage(level.getServer(), "check works");
             }
         }
     }
@@ -214,31 +214,38 @@ public class CollisionHandler {
     }
 
     private static void handleCollision(ServerLevel level, ServerShip ship, double speed, Vector3d collisionPoint) {
-        sendDebugMessage(level.getServer(), "pls work");
-
         LOGGER.info("Ship collision detected! Ship ID: {}, Speed: {}", ship.getId(), speed);
 
         double shipMass = ship.getInertiaData().getMass();
         double impactEnergy = 0.5 * shipMass * speed * speed;
         float explosionStrength = (float) Math.min(impactEnergy / SCALING_FACTOR, MAX_EXPLOSION_POWER);
+        sendDebugMessage(level.getServer(), "energy: "+impactEnergy+" explosion: "+explosionStrength);
+
+
+        //boolean oldRule = level.getGameRules().getBoolean(GameRules.RULE_DOBLOCKDROPS);
+        //level.getGameRules().getRule(GameRules.RULE_DOBLOCKDROPS).set(false, level.getServer());
 
         Explosion explosion = new Explosion(
                 level,
-                null,                // No source entity
+                null,
                 collisionPoint.x,
                 collisionPoint.y,
                 collisionPoint.z,
-                explosionStrength,   // Explosion radius/power
-                true,                // Causes fire
-                Explosion.BlockInteraction.DESTROY // Correct enum for 1.20.1
+                explosionStrength,
+                true,
+                Explosion.BlockInteraction.DESTROY
         );
+        sendDebugMessage(level.getServer(), "before explosion");
 
 
         explosion.explode();
+        sendDebugMessage(level.getServer(), "after explosion");
+
+        //level.getGameRules().getRule(GameRules.RULE_DOBLOCKDROPS).set(oldRule, level.getServer());
+
 
         LOGGER.info("Explosion created at collision point ({}, {}, {}) with power {}",
             collisionPoint.x, collisionPoint.y, collisionPoint.z, explosionStrength);
-        sendDebugMessage(level.getServer(), "IT WORKED");
     }
 
     public static void sendDebugMessage(MinecraftServer server, String message) {
