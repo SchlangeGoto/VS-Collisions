@@ -1,6 +1,7 @@
 package dev.kkazi.vs_collisions;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.Level;
@@ -16,16 +17,17 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.valkyrienskies.core.api.ships.ServerShip;
 import org.valkyrienskies.core.api.ships.Ship;
+import org.valkyrienskies.core.api.ships.properties.ShipInertiaData;
 import org.valkyrienskies.mod.common.VSGameUtilsKt;
 
 @Mod.EventBusSubscriber(modid = VS_Collisions.MOD_ID)
 public class CollisionHandler {
     
     private static final Logger LOGGER = LoggerFactory.getLogger(CollisionHandler.class);
-    
-    private static final double MIN_COLLISION_SPEED = 2.0; // Minimum speed to trigger collision
-    private static final double MAX_EXPLOSION_POWER = 10.0;
-    private static final double MIN_EXPLOSION_POWER = 1.0;
+
+    private static final double MIN_COLLISION_SPEED = 0.0; // Minimum speed to trigger collision
+    private static final double MAX_EXPLOSION_POWER = 5000.0;
+    private static final double SCALING_FACTOR = 25.0;
     private static final int PREDICTION_TICKS = 3; // How many ticks ahead to predict
     
     private static class CollisionResult {
@@ -45,36 +47,14 @@ public class CollisionHandler {
             return new CollisionResult(true, point);
         }
     }
-    /*
     @SubscribeEvent
     public static void onServerTick(TickEvent.ServerTickEvent event) {
         if (event.phase != TickEvent.Phase.END) return;
-        
+
         for (ServerLevel level : event.getServer().getAllLevels()) {
             checkShipCollisions(level);
         }
     }
-    */
-
-    @SubscribeEvent
-    public static void onServerTick(TickEvent.ServerTickEvent event) {
-        if (event.phase != TickEvent.Phase.END) return;
-
-        MinecraftServer server = event.getServer();
-        if (server == null) {
-            System.out.println("[VS Collisions] Server is null during tick!");
-            return;
-        }
-
-        try {
-            for (ServerLevel level : server.getAllLevels()) {
-                checkShipCollisions(level);
-            }
-        } catch (Throwable t) {
-            t.printStackTrace();
-        }
-    }
-
 
     private static void checkShipCollisions(ServerLevel level) {
         var ships = VSGameUtilsKt.getAllShips(level);
@@ -91,7 +71,8 @@ public class CollisionHandler {
             
             CollisionResult result = checkForCollisionWithPoint(level, ship, futurePosition);
             if (result.hasCollision) {
-                handleCollision(level, ship, speed, result.collisionPoint);
+                handleCollision(level, (ServerShip) ship, speed, result.collisionPoint);
+                sendDebugMessage(level.getServer(), "check works");
             }
         }
     }
@@ -231,35 +212,48 @@ public class CollisionHandler {
         }
         return CollisionResult.noCollision();
     }
-    
-    private static void handleCollision(ServerLevel level, Ship ship, double speed, Vector3d collisionPoint) {
+
+    private static void handleCollision(ServerLevel level, ServerShip ship, double speed, Vector3d collisionPoint) {
+        sendDebugMessage(level.getServer(), "pls work");
+
         LOGGER.info("Ship collision detected! Ship ID: {}, Speed: {}", ship.getId(), speed);
-        
-        double shipVolume = calculateShipVolume(ship);
-        double explosionPower = calculateExplosionPower(speed, shipVolume);
-        
-        level.explode(
-            null,
-            collisionPoint.x, collisionPoint.y, collisionPoint.z,
-            (float) explosionPower,
-            Level.ExplosionInteraction.TNT
+
+        double shipMass = ship.getInertiaData().getMass();
+        double impactEnergy = 0.5 * shipMass * speed * speed;
+        float explosionStrength = (float) Math.min(impactEnergy / SCALING_FACTOR, MAX_EXPLOSION_POWER);
+
+        Explosion explosion = new Explosion(
+                level,
+                null,                // No source entity
+                collisionPoint.x,
+                collisionPoint.y,
+                collisionPoint.z,
+                explosionStrength,   // Explosion radius/power
+                true,                // Causes fire
+                Explosion.BlockInteraction.DESTROY // Correct enum for 1.20.1
         );
-        
+
+
+        explosion.explode();
+
         LOGGER.info("Explosion created at collision point ({}, {}, {}) with power {}",
-            collisionPoint.x, collisionPoint.y, collisionPoint.z, explosionPower);
+            collisionPoint.x, collisionPoint.y, collisionPoint.z, explosionStrength);
+        sendDebugMessage(level.getServer(), "IT WORKED");
     }
-    
+
+    public static void sendDebugMessage(MinecraftServer server, String message) {
+        if (server != null) {
+            server.getPlayerList().broadcastSystemMessage(
+                    Component.literal("[DEBUG] " + message),
+                    false // false = chat, true = action bar
+            );
+        }
+    }
+  /*
     private static double calculateShipVolume(Ship ship) {
         AABBic boundsInt = ship.getShipAABB();
         AABBd bounds = convertToAABBd(boundsInt);
         return (bounds.maxX() - bounds.minX()) * (bounds.maxY() - bounds.minY()) * (bounds.maxZ() - bounds.minZ());
-    }
-    
-    private static double calculateExplosionPower(double speed, double volume) {
-        double basePower = Math.min(speed * 0.5, 20);
-        double sizeFactor = Math.min(volume * 0.01, 5);
-        double totalPower = basePower + sizeFactor;
-        
-        return Math.max(MIN_EXPLOSION_POWER, Math.min(MAX_EXPLOSION_POWER, totalPower));
-    }
+    }*/
+
 }
