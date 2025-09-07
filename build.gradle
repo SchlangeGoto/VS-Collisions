@@ -58,7 +58,7 @@ publishing {
             println "Publishing to Github Packages ($version)"
             maven {
                 name = "GitHubPackages"
-                url = uri("https://maven.pkg.github.com/illucc/Kontraption")
+                url = uri("https://maven.pkg.github.com/schlangegoto/vs-collisions")
                 credentials {
                     username = project.findProperty("gpr.user") ?: System.getenv("USERNAME")
                     password = project.findProperty("gpr.key") ?: System.getenv("TOKEN")

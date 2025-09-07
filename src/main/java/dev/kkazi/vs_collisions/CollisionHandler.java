@@ -4,15 +4,20 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.util.Mth;
 import net.minecraft.world.level.GameRules;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.Explosion;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
+import org.joml.Matrix4dc;
+import org.joml.Vector3dc;
 import org.joml.primitives.AABBd;
 import org.joml.primitives.AABBdc;
+import org.joml.primitives.AABBi;
 import org.joml.primitives.AABBic;
 import org.joml.Vector3d;
 import org.slf4j.Logger;
@@ -27,15 +32,9 @@ public class CollisionHandler {
     
     private static final Logger LOGGER = LoggerFactory.getLogger(CollisionHandler.class);
 
-    private static final double MIN_COLLISION_SPEED = 10.0; // Minimum speed to trigger collision
-    private static final double MAX_EXPLOSION_POWER = 10.0;
-    private static final double SCALING_FACTOR = 100000; //energy will get divided by this, higher factor = less big explosion. DONT PUT THAT UNDER 1000
-    private static final int PREDICTION_TICKS = 3; // How many ticks ahead to predict
-    
     private static class CollisionResult {
         public final boolean hasCollision;
         public final Vector3d collisionPoint;
-        // normalSpeed = component of relative velocity along collision normal (m/s)
         public final double normalSpeed;
 
         public CollisionResult(boolean hasCollision, Vector3d collisionPoint, double normalSpeed) {
@@ -67,10 +66,11 @@ public class CollisionHandler {
         for (Ship ship : ships) {
             if (!(ship instanceof ServerShip serverShip)) continue;
             
-            Vector3d velocity = new Vector3d(ship.getVelocity().x(), ship.getVelocity().y(), ship.getVelocity().z());
+            Vector3d velocity = new Vector3d(ship.getVelocity());
+            
             double speed = velocity.length();
             
-            if (speed < MIN_COLLISION_SPEED) continue;
+            if (speed < ModConfig.MIN_COLLISION_SPEED.get()) continue;
             
             Vector3d futurePosition = predictShipPosition(ship, velocity);
             
@@ -89,22 +89,15 @@ public class CollisionHandler {
         );
         
         Vector3d futurePos = new Vector3d(currentPos);
-        futurePos.add(velocity.x * PREDICTION_TICKS * 0.05, // 0.05 = 1 tick in seconds
-                     velocity.y * PREDICTION_TICKS * 0.05,
-                     velocity.z * PREDICTION_TICKS * 0.05);
+        futurePos.add(velocity.x * ModConfig.PREDICTION_TICKS.get() * 0.05, // 0.05 = 1 tick in seconds
+                     velocity.y * ModConfig.PREDICTION_TICKS.get() * 0.05,
+                     velocity.z * ModConfig.PREDICTION_TICKS.get() * 0.05);
         
         return futurePos;
     }
-
-
-
+    
     private static CollisionResult checkForCollisionWithPoint(ServerLevel level, Ship ship, Vector3d futurePosition) {
-        AABBdc worldBoundsC  = ship.getWorldAABB();
-        if (worldBoundsC == null) {
-            return CollisionResult.noCollision();
-        }
-        // Copy to a mutable AABBd so we can translate it
-        AABBd worldBounds = new AABBd(worldBoundsC);
+        AABBd worldBounds = new AABBd(ship.getWorldAABB());
 
         Vector3d currentPos = new Vector3d(
             ship.getTransform().getPositionInWorld().x(),
@@ -118,7 +111,7 @@ public class CollisionHandler {
             worldBounds.maxX() + offset.x, worldBounds.maxY() + offset.y, worldBounds.maxZ() + offset.z
         );
         
-        CollisionResult blockResult = checkBlockCollisionsWithPoint(level, futureBounds, ship.getVelocity());
+        CollisionResult blockResult = checkBlockCollisionsWithPoint(level, futureBounds, new Vector3d(ship.getVelocity()));
         if (blockResult.hasCollision) {
             return blockResult;
         }
@@ -126,15 +119,14 @@ public class CollisionHandler {
         return checkShipCollisionsWithPoint(level, ship, futureBounds);
     }
     
-    private static CollisionResult checkBlockCollisionsWithPoint(ServerLevel level, AABBd bounds, org.joml.Vector3dc velocity) {
+    private static CollisionResult checkBlockCollisionsWithPoint(ServerLevel level, AABBd bounds, Vector3d velocity) {
         int minX = (int) Math.floor(bounds.minX());
         int minY = (int) Math.floor(bounds.minY());
         int minZ = (int) Math.floor(bounds.minZ());
-        int maxX = (int) Math.ceil(bounds.maxX());
-        int maxY = (int) Math.ceil(bounds.maxY());
-        int maxZ = (int) Math.ceil(bounds.maxZ());
+        int maxX = (int) Math.floor(bounds.maxX());
+        int maxY = (int) Math.floor(bounds.maxY());
+        int maxZ = (int) Math.floor(bounds.maxZ());
 
-        Vector3d vel = new Vector3d(velocity.x(), velocity.y(), velocity.z());
         Vector3d shipCenter = new Vector3d(
                 (bounds.minX() + bounds.maxX()) * 0.5,
                 (bounds.minY() + bounds.maxY()) * 0.5,
@@ -163,7 +155,7 @@ public class CollisionHandler {
                             Vector3d collisionNormal = computeCollisionNormal(bounds, blockAABB);
 
                             // Calculate distance along velocity direction to determine which block is hit first
-                            double distanceAlongVelocity = calculateDistanceAlongVelocity(shipCenter, collisionPoint, vel);
+                            double distanceAlongVelocity = calculateDistanceAlongVelocity(shipCenter, collisionPoint, velocity);
 
                             if (distanceAlongVelocity < closestDistance) {
                                 closestDistance = distanceAlongVelocity;
@@ -177,7 +169,7 @@ public class CollisionHandler {
         }
 
         if (closestCollisionPoint != null) {
-            double normalSpeed = Math.abs(vel.dot(closestCollisionNormal));
+            double normalSpeed = Math.abs(velocity.dot(closestCollisionNormal));
             return CollisionResult.collision(closestCollisionPoint, normalSpeed);
         }
 
@@ -215,6 +207,7 @@ public class CollisionHandler {
             (Math.max(a.minY(), b.minY()) + Math.min(a.maxY(), b.maxY())) * 0.5,
             (Math.max(a.minZ(), b.minZ()) + Math.min(a.maxZ(), b.maxZ())) * 0.5
         );
+
     }
 
     // Helper methods for AABB center calculations
@@ -254,39 +247,109 @@ public class CollisionHandler {
     }
 
     private static CollisionResult checkShipCollisionsWithPoint(ServerLevel level, Ship currentShip, AABBd bounds) {
-        var allShips = VSGameUtilsKt.getAllShips(level);
+        Vector3d currentVel = new Vector3d(currentShip.getVelocity());
+        Vector3d shipCenter = new Vector3d(
+                (bounds.minX() + bounds.maxX()) * 0.5,
+                (bounds.minY() + bounds.maxY()) * 0.5,
+                (bounds.minZ() + bounds.maxZ()) * 0.5
+        );
 
-        // Current ship velocity
-        Vector3d currentVel = new Vector3d(currentShip.getVelocity().x(), currentShip.getVelocity().y(), currentShip.getVelocity().z());
+        var intersectingShips = VSGameUtilsKt.getShipsIntersecting(level, bounds);
+        // Track the closest collision along velocity direction
+        Vector3d closestCollisionPoint = null;
+        Vector3d closestCollisionNormal = null;
+        Ship closestCollidingShip = null;  // Add this
+        double closestDistance = Double.MAX_VALUE;
 
-        for (Ship otherShip : allShips) {
+        for (Ship otherShip : intersectingShips) {
             if (otherShip.getId() == currentShip.getId()) continue; // Skip self
 
-            AABBdc otherWorldAABB = otherShip.getWorldAABB();
+            AABBd otherWorldAABB = new AABBd(otherShip.getWorldAABB());
 
-            if (otherWorldAABB == null) continue;
-
-            // Predict other ship movement for the same prediction period
-            Vector3d otherVel = new Vector3d(otherShip.getVelocity().x(), otherShip.getVelocity().y(), otherShip.getVelocity().z());
-            Vector3d predictedOffsetOther = new Vector3d(otherVel).mul(PREDICTION_TICKS * 0.05); // ticks->seconds factor consistent with predictShipPosition
+            // Predict other ship movement
+            Vector3d otherVel = new Vector3d(otherShip.getVelocity());
+            Vector3d predictedOffsetOther = new Vector3d(otherVel).mul(ModConfig.PREDICTION_TICKS.get() * 0.05);
             AABBd predictedOtherAABB = new AABBd(
-                otherWorldAABB.minX() + predictedOffsetOther.x, otherWorldAABB.minY() + predictedOffsetOther.y, otherWorldAABB.minZ() + predictedOffsetOther.z,
-                otherWorldAABB.maxX() + predictedOffsetOther.x, otherWorldAABB.maxY() + predictedOffsetOther.y, otherWorldAABB.maxZ() + predictedOffsetOther.z
+                    otherWorldAABB.minX() + predictedOffsetOther.x, otherWorldAABB.minY() + predictedOffsetOther.y, otherWorldAABB.minZ() + predictedOffsetOther.z,
+                    otherWorldAABB.maxX() + predictedOffsetOther.x, otherWorldAABB.maxY() + predictedOffsetOther.y, otherWorldAABB.maxZ() + predictedOffsetOther.z
             );
 
             // Broadphase test: only continue if predicted bounds intersect
             if (!bounds.intersectsAABB(predictedOtherAABB)) continue;
 
-            Vector3d collisionPoint = computeAABBIntersectionCenter(bounds, predictedOtherAABB);
-            Vector3d collisionNormal = computeCollisionNormal(bounds, predictedOtherAABB);
+            // Block-level collision detection
+            CollisionResult blockCollision = checkShipBlockCollisions(level, currentShip, otherShip, bounds, otherWorldAABB, currentVel, shipCenter, closestDistance);
 
-            // Relative velocity between the two ships
-            Vector3d otherVelWorld = otherVel;
-            Vector3d relativeVel = new Vector3d(currentVel).sub(otherVelWorld);
-            double normalSpeed = Math.abs(relativeVel.dot(collisionNormal));
-
-            return CollisionResult.collision(collisionPoint, normalSpeed);
+            if (blockCollision.hasCollision) {
+                double distanceAlongVelocity = calculateDistanceAlongVelocity(shipCenter, blockCollision.collisionPoint, currentVel);
+                if (distanceAlongVelocity < closestDistance) {
+                    closestDistance = distanceAlongVelocity;
+                    closestCollisionPoint = new Vector3d(blockCollision.collisionPoint);
+                    closestCollisionNormal = computeCollisionNormal(bounds, predictedOtherAABB);
+                    closestCollidingShip = otherShip;  // Store the colliding ship
+                }
+            }
         }
+
+        if (closestCollisionPoint != null) {
+            Vector3d otherVel = new Vector3d(closestCollidingShip.getVelocity());
+            Vector3d relativeVel = new Vector3d(currentVel).sub(otherVel);  // Current - Other
+            double normalSpeed = Math.abs(relativeVel.dot(closestCollisionNormal));
+            return CollisionResult.collision(closestCollisionPoint, normalSpeed);
+        }
+
+        return CollisionResult.noCollision();
+    }
+
+    private static CollisionResult checkShipBlockCollisions(ServerLevel level, Ship currentShip, Ship otherShip, AABBd bounds, AABBd otherBounds, Vector3d currentVel, Vector3d shipCenter, double currentBestDistance) {
+        Vector3d closestCollisionPoint = null;
+        Vector3d closestCollisionNormal = null;
+        double closestDistance = Double.MAX_VALUE;
+
+        AABBi otherShipAABB = new AABBi(otherShip.getShipAABB());
+
+        int minX = otherShipAABB.minX();
+        int minY = otherShipAABB.minY();
+        int minZ = otherShipAABB.minZ();
+        int maxX = otherShipAABB.maxX();
+        int maxY = otherShipAABB.maxY();
+        int maxZ = otherShipAABB.maxZ();
+
+        for (int x = minX; x <= maxX; x++) {
+            for (int y = minY; y <= maxY; y++) {
+                for (int z = minZ; z <= maxZ; z++) {
+                    BlockPos blockPos = new BlockPos(x, y, z);
+                    BlockState state = level.getBlockState(blockPos);
+
+                    if (!state.isAir() && state.isSolid()) {
+                        // Create AABB for this block in world space
+                        Vector3d blockPosWorld = VSGameUtilsKt.toWorldCoordinates(otherShip, blockPos);
+
+                        AABBd blockAABB = new AABBd(
+                                blockPosWorld.x, blockPosWorld.y, blockPosWorld.z,   // min corner
+                                blockPosWorld.x+1, blockPosWorld.y+1, blockPosWorld.z+1   // max corner
+                        );
+                        // Check if current ship's bounds intersect with this block
+                        if (bounds.intersectsAABB(blockAABB)) {
+                            Vector3d collisionPoint = computeAABBIntersectionCenter(bounds, blockAABB);
+                            Vector3d collisionNormal = computeCollisionNormal(bounds, blockAABB);
+
+                            double distanceAlongVelocity = calculateDistanceAlongVelocity(shipCenter, collisionPoint, currentVel);
+                            if (distanceAlongVelocity < closestDistance && distanceAlongVelocity < currentBestDistance) {
+                                closestDistance = distanceAlongVelocity;
+                                closestCollisionPoint = new Vector3d(collisionPoint);
+                                closestCollisionNormal = new Vector3d(collisionNormal);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (closestCollisionPoint != null) {
+            return CollisionResult.collision(closestCollisionPoint, 0.0); // Speed calculated later
+        }
+
         return CollisionResult.noCollision();
     }
 
@@ -295,12 +358,8 @@ public class CollisionHandler {
 
         double shipMass = ship.getInertiaData().getMass();
         double impactEnergy = 0.5 * shipMass * speed * speed;
-        float explosionStrength = (float) Math.min(impactEnergy / SCALING_FACTOR, MAX_EXPLOSION_POWER);
+        float explosionStrength = (float) Math.min(impactEnergy * ModConfig.SCALING_FACTOR.get(), ModConfig.MAX_EXPLOSION_POWER.get());
         sendDebugMessage(level.getServer(), "energy: "+impactEnergy+" explosion: "+explosionStrength);
-
-
-        //boolean oldRule = level.getGameRules().getBoolean(GameRules.RULE_DOBLOCKDROPS);
-        //level.getGameRules().getRule(GameRules.RULE_DOBLOCKDROPS).set(false, level.getServer());
 
         Explosion explosion = new Explosion(
                 level,
@@ -312,15 +371,9 @@ public class CollisionHandler {
                 false,
                 Explosion.BlockInteraction.DESTROY
         );
-        sendDebugMessage(level.getServer(), "before explosion");
-
 
         explosion.explode();
-        explosion.finalizeExplosion(false);
-        sendDebugMessage(level.getServer(), "after explosion");
-
-        //level.getGameRules().getRule(GameRules.RULE_DOBLOCKDROPS).set(oldRule, level.getServer());
-
+        explosion.finalizeExplosion(true);
 
         LOGGER.info("Explosion created at collision point ({}, {}, {}) with power {}",
             collisionPoint.x, collisionPoint.y, collisionPoint.z, explosionStrength);
@@ -334,11 +387,4 @@ public class CollisionHandler {
             );
         }
     }
-  /*
-    private static double calculateShipVolume(Ship ship) {
-        AABBic boundsInt = ship.getShipAABB();
-        AABBd bounds = convertToAABBd(boundsInt);
-        return (bounds.maxX() - bounds.minX()) * (bounds.maxY() - bounds.minY()) * (bounds.maxZ() - bounds.minZ());
-    }*/
-
 }
