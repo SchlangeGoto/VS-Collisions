@@ -1,35 +1,43 @@
 package dev.kkazi.vs_collisions;
 
+//good packages/classes to look at for VS stuff
+//org.valkyrienskies.mod.api.VsApi
+//org.valkyrienskies.core.api.VsCoreApi
+//org.valkyrienskies.core.api.events
+//org.valkyrienskies.core.api.physics.RayCastResult
+//org.valkyrienskies.mod.api.ValkyrienSkies
+//org.valkyrienskies.mod
+//org.valkyrienskies.mod.common
+
+
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.util.Mth;
-import net.minecraft.world.level.GameRules;
-import net.minecraft.world.level.Level;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.Explosion;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.AABB;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
-import org.joml.Matrix4dc;
-import org.joml.Vector3dc;
-import org.joml.primitives.AABBd;
-import org.joml.primitives.AABBdc;
-import org.joml.primitives.AABBi;
-import org.joml.primitives.AABBic;
 import org.joml.Vector3d;
+import org.joml.primitives.AABBd;
+import org.joml.primitives.AABBi;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.valkyrienskies.core.api.ships.ServerShip;
 import org.valkyrienskies.core.api.ships.Ship;
-import org.valkyrienskies.core.api.ships.properties.ShipInertiaData;
+import org.valkyrienskies.mod.api.ValkyrienSkies;
 import org.valkyrienskies.mod.common.VSGameUtilsKt;
+
 
 @Mod.EventBusSubscriber(modid = VS_Collisions.MOD_ID)
 public class CollisionHandler {
-    
+    private static void collisionEvent() {
+        ValkyrienSkies.api().getCollisionStartEvent().on();
+    }
+
     private static final Logger LOGGER = LoggerFactory.getLogger(CollisionHandler.class);
 
     private static class CollisionResult {
@@ -51,14 +59,6 @@ public class CollisionHandler {
             return new CollisionResult(true, point, normalSpeed);
         }
     }
-    @SubscribeEvent
-    public static void onServerTick(TickEvent.ServerTickEvent event) {
-        if (event.phase != TickEvent.Phase.END) return;
-
-        for (ServerLevel level : event.getServer().getAllLevels()) {
-            checkShipCollisions(level);
-        }
-    }
 
     private static void checkShipCollisions(ServerLevel level) {
         var ships = VSGameUtilsKt.getAllShips(level);
@@ -76,7 +76,7 @@ public class CollisionHandler {
             
             CollisionResult result = checkForCollisionWithPoint(level, ship, futurePosition);
             if (result.hasCollision) {
-                handleCollision(level, (ServerShip) ship, speed, result.collisionPoint);
+                handleCollision(level, serverShip, speed, result.collisionPoint);
             }
         }
     }
@@ -278,7 +278,7 @@ public class CollisionHandler {
             if (!bounds.intersectsAABB(predictedOtherAABB)) continue;
 
             // Block-level collision detection
-            CollisionResult blockCollision = checkShipBlockCollisions(level, currentShip, otherShip, bounds, otherWorldAABB, currentVel, shipCenter, closestDistance);
+            CollisionResult blockCollision = checkShipBlockCollisions(level, otherShip, bounds, currentVel, shipCenter, closestDistance);
 
             if (blockCollision.hasCollision) {
                 double distanceAlongVelocity = calculateDistanceAlongVelocity(shipCenter, blockCollision.collisionPoint, currentVel);
@@ -301,9 +301,8 @@ public class CollisionHandler {
         return CollisionResult.noCollision();
     }
 
-    private static CollisionResult checkShipBlockCollisions(ServerLevel level, Ship currentShip, Ship otherShip, AABBd bounds, AABBd otherBounds, Vector3d currentVel, Vector3d shipCenter, double currentBestDistance) {
+    private static CollisionResult checkShipBlockCollisions(ServerLevel level, Ship otherShip, AABBd bounds, Vector3d currentVel, Vector3d shipCenter, double currentBestDistance) {
         Vector3d closestCollisionPoint = null;
-        Vector3d closestCollisionNormal = null;
         double closestDistance = Double.MAX_VALUE;
 
         AABBi otherShipAABB = new AABBi(otherShip.getShipAABB());
@@ -332,13 +331,11 @@ public class CollisionHandler {
                         // Check if current ship's bounds intersect with this block
                         if (bounds.intersectsAABB(blockAABB)) {
                             Vector3d collisionPoint = computeAABBIntersectionCenter(bounds, blockAABB);
-                            Vector3d collisionNormal = computeCollisionNormal(bounds, blockAABB);
 
                             double distanceAlongVelocity = calculateDistanceAlongVelocity(shipCenter, collisionPoint, currentVel);
                             if (distanceAlongVelocity < closestDistance && distanceAlongVelocity < currentBestDistance) {
                                 closestDistance = distanceAlongVelocity;
                                 closestCollisionPoint = new Vector3d(collisionPoint);
-                                closestCollisionNormal = new Vector3d(collisionNormal);
                             }
                         }
                     }
@@ -370,10 +367,27 @@ public class CollisionHandler {
                 explosionStrength,
                 false,
                 Explosion.BlockInteraction.DESTROY
+
         );
 
         explosion.explode();
         explosion.finalizeExplosion(true);
+
+        // Reduce knockback for all affected entities
+        for (Entity entity : explosion.getHitPlayers().keySet()) { // players
+            entity.setDeltaMovement(entity.getDeltaMovement().scale(0.6)); // 30% knockback
+        }
+        for (Entity entity : level.getEntities(null, new AABB(
+                collisionPoint.x - explosionStrength - 1,
+                collisionPoint.y - explosionStrength - 1,
+                collisionPoint.z - explosionStrength - 1,
+                collisionPoint.x + explosionStrength + 1,
+                collisionPoint.y + explosionStrength + 1,
+                collisionPoint.z + explosionStrength + 1))) {
+            if (entity != null) { // non-players
+                entity.setDeltaMovement(entity.getDeltaMovement().scale(0.6));
+            }
+        }
 
         LOGGER.info("Explosion created at collision point ({}, {}, {}) with power {}",
             collisionPoint.x, collisionPoint.y, collisionPoint.z, explosionStrength);

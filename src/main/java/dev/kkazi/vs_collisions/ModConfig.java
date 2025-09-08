@@ -1,9 +1,7 @@
 package dev.kkazi.vs_collisions;
 
 import net.minecraftforge.common.ForgeConfigSpec;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.fml.event.config.ModConfigEvent;
 
 @Mod.EventBusSubscriber(modid = VS_Collisions.MOD_ID, bus = Mod.EventBusSubscriber.Bus.MOD)
 public class ModConfig {
