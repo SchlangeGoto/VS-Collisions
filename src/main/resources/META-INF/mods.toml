@@ -5,10 +5,10 @@ license = "${mod_license}"
 
 [[mods]]
 modId = "${mod_id}"
-version = "${version}"
+version = "${mod_version}"
 displayName = "${mod_name}"
-isplayURL = "${homepage}"
-authors = ["${mod_author}"]
+displayURL = "${homepage}"
+authors = ["${mod_authors}"]
 description = '''
 ${mod_description}
 '''

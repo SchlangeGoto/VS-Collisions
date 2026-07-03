@@ -1,9 +1,9 @@
 {
   "required": true,
   "minVersion": "0.8",
-  "package": "dev.kkazi.vs_collisions.mixin",
+  "package": "dev.kkazi.vscollisions.mixin",
   "compatibilityLevel": "JAVA_17",
-  "refmap": "vs_collisions.refmap.json",
+  "refmap": "mixins.vs_collisions.refmap.json",
   "mixins": [
   ],
   "client": [
