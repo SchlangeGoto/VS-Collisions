@@ -11,6 +11,7 @@ import java.util.Comparator;
 import java.util.List;
 
 public final class ImpactZoneClusterer {
+    //TODO: Tweak these constants to get better clustering results
     private static final double CLUSTER_RADIUS = 2.0;
     private static final double NORMAL_THRESHOLD = 0.8;
     private static final int MAX_ZONES = 6;

@@ -3,6 +3,7 @@ package dev.kkazi.vscollisions.stress;
 import org.joml.Vector3d;
 
 public class InjectedStress {
+    //TODO: Maybe add more energys to bring it closer to reality
     public double compression;
     public double shear;
     public Vector3d direction;
