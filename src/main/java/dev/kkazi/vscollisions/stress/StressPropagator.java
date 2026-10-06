@@ -15,6 +15,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Predicate;
 
 public final class StressPropagator {
 
@@ -37,10 +38,33 @@ public final class StressPropagator {
             return Map.of();
         }
 
+        return propagate(injected, level, pos -> ValkyrienSkies.isBlockInShipyard(level, pos),
+                "ship " + ship.getId());
+    }
+
+    public static Map<BlockPos, BlockStressState> propagateWorld(
+            Map<BlockPos, InjectedStress> injected,
+            ServerLevel level) {
+
+        if (injected == null || injected.isEmpty()) {
+            LOGGER.debug("Skipping world stress propagation: injectedBlocks={}",
+                    injected != null ? injected.size() : null);
+            return Map.of();
+        }
+
+        return propagate(injected, level, pos -> !ValkyrienSkies.isBlockInShipyard(level, pos), "world");
+    }
+
+    private static Map<BlockPos, BlockStressState> propagate(
+            Map<BlockPos, InjectedStress> injected,
+            ServerLevel level,
+            Predicate<BlockPos> validBlock,
+            String targetDescription) {
+
         // Step 1 — convert injected stress to initial stress field
         Map<BlockPos, BlockStressState> stressField = StressAccumulator.accumulate(injected);
         if (stressField.isEmpty()) {
-            LOGGER.debug("Stress accumulation produced no blocks for ship {}", ship.getId());
+            LOGGER.debug("Stress accumulation produced no blocks for {}", targetDescription);
             return Map.of();
         }
 
@@ -91,7 +115,7 @@ public final class StressPropagator {
 
                     // Don't propagate back into already-seeded blocks
                     if (stressField.containsKey(neighbor)) continue;
-                    if (!ValkyrienSkies.isBlockInShipyard(level, neighbor)) continue;
+                    if (!validBlock.test(neighbor)) continue;
 
                     BlockState neighborState = level.getBlockState(neighbor);
                     if (neighborState.isAir()) continue;
@@ -151,8 +175,8 @@ public final class StressPropagator {
             result.put(pos, new BlockStressState(stress[0], stress[1], finalDir));
         }
 
-        LOGGER.debug("Stress propagation complete for ship {}: inputBlocks={}, outputBlocks={}",
-                ship.getId(), injected.size(), result.size());
+        LOGGER.debug("Stress propagation complete for {}: inputBlocks={}, outputBlocks={}",
+                targetDescription, injected.size(), result.size());
         return result;
     }
 }

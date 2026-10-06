@@ -9,6 +9,7 @@ import org.valkyrienskies.core.api.ships.LoadedServerShip;
 
 public final class ZoneLoadCalculator {
 
+    //TODO: Tweak these properties, or even better make the calculations more realistic so that we dont even need these made up properties
     private static final double SPIN_ENERGY_LOSS_FACTOR = 0.3;
     private static final double FRICTION_FACTOR = 0.4;
     private static final double EPSILON = 1e-9;
@@ -29,6 +30,7 @@ public final class ZoneLoadCalculator {
             return null;
         }
 
+        //TODO: Check if affective Mass calculations are physicaly correct, if not make it more realistic
         double effectiveMass;
         if (isWorldCollision) {
             effectiveMass = massA > 0 ? massA : massB;
@@ -45,6 +47,7 @@ public final class ZoneLoadCalculator {
             return null;
         }
 
+        //TODO: Check if impulse and Energy calculations are phyisicaly correct, if not make it more realistic
         double impulse = effectiveMass * velocity.normalVelocity;
         double normalEnergy = 0.5 * effectiveMass * velocity.normalVelocity * velocity.normalVelocity;
         double shearEnergy = 0.5 * effectiveMass * velocity.tangentialVelocity * velocity.tangentialVelocity * FRICTION_FACTOR;
@@ -72,9 +75,9 @@ public final class ZoneLoadCalculator {
                         Math.pow(aabb.maxZ() - aabb.minZ(), 2)
         ) / 2.0);
 
+        //TODO: Make these calculations phyisicaly correct and more realistic
         double leverRatio = leverArm.length() / shipRadius;
         double torqueFactor = leverRatio / (leverRatio + 1.0);
-
         double spinLoss = torqueFactor * SPIN_ENERGY_LOSS_FACTOR;
         double damageEnergy = kineticEnergy * (1.0 - spinLoss);
 
@@ -96,6 +99,8 @@ public final class ZoneLoadCalculator {
         );
     }
 
+
+    //TODO: Check/Make these calculations phyisicaly correct and more realistic
     private static ZoneVelocityMetrics computeVelocityMetrics(ImpactZone zone) {
         Vector3d normal = normalizedOrFallback(zone.normal, new Vector3d(0, 0, 1));
         double weightedNormalVelocitySq = 0.0;
@@ -131,6 +136,7 @@ public final class ZoneLoadCalculator {
         return new ZoneVelocityMetrics(normalVelocity, tangentialVelocity, impactDirection);
     }
 
+    //TODO: Check/Make these calculations phyisicaly correct and more realistic
     private static ZoneVelocityMetrics computeFallbackVelocityMetrics(ImpactZone zone, Vector3d normal) {
         Vector3d velocity = zone.averageVelocity;
         if (velocity == null || velocity.lengthSquared() < EPSILON) return null;
@@ -145,6 +151,7 @@ public final class ZoneLoadCalculator {
         return new ZoneVelocityMetrics(normalVelocity, tangentialVelocity, impactDirection);
     }
 
+    //TOOD: Check/Make these calculations phyisicaly correct and more realistic
     private static Vector3d normalizedOrFallback(Vector3d value, Vector3d fallback) {
         if (value != null && value.lengthSquared() > EPSILON) {
             return new Vector3d(value).normalize();

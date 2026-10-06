@@ -19,6 +19,7 @@ public final class ImpactZoneClusterer {
     private ImpactZoneClusterer() {
     }
 
+    //TODO: Check if the algroithm reflects reality, if not make it more realistic
     public static List<ImpactZone> cluster(Collection<ContactPoint> points) {
         LOGGER.debug("Clustering {} contact points into impact zones", points.size());
         List<ContactPoint> sorted = points.stream()

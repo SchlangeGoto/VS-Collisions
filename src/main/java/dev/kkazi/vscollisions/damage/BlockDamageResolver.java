@@ -12,6 +12,7 @@ import org.valkyrienskies.core.api.ships.LoadedServerShip;
 import org.valkyrienskies.mod.api.ValkyrienSkies;
 
 import java.util.Map;
+import java.util.function.Predicate;
 
 public final class BlockDamageResolver {
 
@@ -42,6 +43,28 @@ public final class BlockDamageResolver {
         if (stressField == null || stressField.isEmpty()) return;
         if (ship == null || damageData == null) return;
 
+        evaluate(stressField, level, damageData, pos -> ValkyrienSkies.isBlockInShipyard(level, pos),
+                "ship " + ship.getId());
+    }
+
+    public static void evaluateWorld(
+            Map<BlockPos, BlockStressState> stressField,
+            ServerLevel level,
+            ShipDamageData damageData) {
+
+        if (stressField == null || stressField.isEmpty()) return;
+        if (damageData == null) return;
+
+        evaluate(stressField, level, damageData, pos -> !ValkyrienSkies.isBlockInShipyard(level, pos), "world");
+    }
+
+    private static void evaluate(
+            Map<BlockPos, BlockStressState> stressField,
+            ServerLevel level,
+            ShipDamageData damageData,
+            Predicate<BlockPos> validBlock,
+            String targetDescription) {
+
         int yielded = 0;
         int destroyed = 0;
         int cracked = 0;
@@ -50,7 +73,7 @@ public final class BlockDamageResolver {
             BlockPos pos = entry.getKey();
             BlockStressState stress = entry.getValue();
 
-            if (!ValkyrienSkies.isBlockInShipyard(level, pos)) continue;
+            if (!validBlock.test(pos)) continue;
 
             BlockState state = level.getBlockState(pos);
             if (state.isAir()) continue;
@@ -86,8 +109,8 @@ public final class BlockDamageResolver {
             }
 
             LOGGER.debug(
-                    "Damage candidate for ship {} at {}: vonMises={}, yield={}, ultimate={}, accumulated={}",
-                    ship.getId(), pos, vonMises, effectiveYield, effectiveUltimate, accumulated);
+                    "Damage candidate for {} at {}: vonMises={}, yield={}, ultimate={}, accumulated={}",
+                    targetDescription, pos, vonMises, effectiveYield, effectiveUltimate, accumulated);
 
             if (vonMises >= effectiveUltimate) {
                 // Failure — block destroyed
@@ -116,7 +139,7 @@ public final class BlockDamageResolver {
             cracked++;
         }
 
-        LOGGER.debug("Material evaluation complete for ship {}: yielded={}, cracked={}, destroyed={}",
-                ship.getId(), yielded, cracked, destroyed);
+        LOGGER.debug("Material evaluation complete for {}: yielded={}, cracked={}, destroyed={}",
+                targetDescription, yielded, cracked, destroyed);
     }
 }

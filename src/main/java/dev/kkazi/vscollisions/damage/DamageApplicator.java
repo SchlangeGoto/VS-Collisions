@@ -28,6 +28,8 @@ import java.util.Map;
 public class DamageApplicator {
     private static final double MIN_DAMAGE_IMPULSE = 50.0;
 
+    private final Map<String, ShipDamageData> worldDamageData = new HashMap<>();
+
     @SubscribeEvent
     public void onServerTick(TickEvent.ServerTickEvent event) {
         if (event.phase != TickEvent.Phase.END) return;
@@ -75,8 +77,10 @@ public class DamageApplicator {
 
         Map<BlockPos, InjectedStress> stressOnA = new HashMap<>();
         Map<BlockPos, InjectedStress> stressOnB = new HashMap<>();
+        Map<BlockPos, InjectedStress> stressOnWorld = new HashMap<>();
         int injectedZonesA = 0;
         int injectedZonesB = 0;
+        int injectedZonesWorld = 0;
 
         for (ImpactZone zone : impactZones) {
 
@@ -93,6 +97,18 @@ public class DamageApplicator {
                 }
             }
 
+            if (shipA != null && shipB == null) {
+                ImpactZoneResult resultWorld = ZoneLoadCalculator.compute(zone, massA, massB, true, shipA);
+                if (resultWorld != null && resultWorld.impulse >= MIN_DAMAGE_IMPULSE) {
+                    injectedZonesWorld++;
+                    Map<BlockPos, InjectedStress> zoneStressWorld =
+                            BlockImpactInjector.injectWorld(zone, resultWorld, level);
+                    mergeInto(stressOnWorld, zoneStressWorld);
+                } else {
+                    LOGGER.debug("Zone skipped for world: impulse={}", resultWorld != null ? resultWorld.impulse : null);
+                }
+            }
+
             if (shipB != null) {
                 boolean bIsWorldCollision = (shipA == null);
                 ImpactZone invertedZone = zone.inverted();
@@ -106,23 +122,39 @@ public class DamageApplicator {
                     LOGGER.debug("Zone skipped for shipB: impulse={}", resultB != null ? resultB.impulse : null);
                 }
             }
+
+            if (shipB != null && shipA == null) {
+                ImpactZoneResult resultWorld = ZoneLoadCalculator.compute(zone, massA, massB, true, shipB);
+                if (resultWorld != null && resultWorld.impulse >= MIN_DAMAGE_IMPULSE) {
+                    injectedZonesWorld++;
+                    Map<BlockPos, InjectedStress> zoneStressWorld =
+                            BlockImpactInjector.injectWorld(zone, resultWorld, level);
+                    mergeInto(stressOnWorld, zoneStressWorld);
+                } else {
+                    LOGGER.debug("Zone skipped for world: impulse={}", resultWorld != null ? resultWorld.impulse : null);
+                }
+            }
         }
-        LOGGER.debug("Injected stress from zones: shipAZones={}, shipBZones={}, stressA={}, stressB={}",
-                injectedZonesA, injectedZonesB, stressOnA.size(), stressOnB.size());
+        LOGGER.debug("Injected stress from zones: shipAZones={}, shipBZones={}, worldZones={}, stressA={}, stressB={}, stressWorld={}",
+                injectedZonesA, injectedZonesB, injectedZonesWorld, stressOnA.size(), stressOnB.size(), stressOnWorld.size());
 
         Map<BlockPos, BlockStressState> propagatedA =
                 StressPropagator.propagate(shipA, stressOnA, level);
         Map<BlockPos, BlockStressState> propagatedB =
                 StressPropagator.propagate(shipB, stressOnB, level);
-        LOGGER.debug("Propagated stress fields: shipABlocks={}, shipBBlocks={}",
-                propagatedA.size(), propagatedB.size());
+        Map<BlockPos, BlockStressState> propagatedWorld =
+                StressPropagator.propagateWorld(stressOnWorld, level);
+        LOGGER.debug("Propagated stress fields: shipABlocks={}, shipBBlocks={}, worldBlocks={}",
+                propagatedA.size(), propagatedB.size(), propagatedWorld.size());
 
         // Compare against material strength, apply damage / destroy blocks
         ShipDamageData damageDataA = getOrCreateDamageData(shipA);
         ShipDamageData damageDataB = getOrCreateDamageData(shipB);
+        ShipDamageData damageDataWorld = worldDamageData.computeIfAbsent(dimId, ignored -> new ShipDamageData());
 
         BlockDamageResolver.evaluate(propagatedA, shipA, level, damageDataA);
         BlockDamageResolver.evaluate(propagatedB, shipB, level, damageDataB);
+        BlockDamageResolver.evaluateWorld(propagatedWorld, level, damageDataWorld);
         LOGGER.debug("Processed collision: dim={}, shipA={}, shipB={}", dimId, collision.getShipIdA(), collision.getShipIdB());
     }
 
